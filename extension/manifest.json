@@ -11,12 +11,18 @@
     "storage",
     "activeTab",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "alarms"
   ],
+  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
   "background": {
-    "service_worker": "dist/background.js"
+    "service_worker": "dist/background.js",
+    "type": "module"
   },
   "host_permissions": [
+    "https://api.stellar-greenpay.app/*",
+    "https://horizon.stellar.org/*",
+    "https://horizon-testnet.stellar.org/*"
     "https://greenpay.app/*",
     "https://staging.greenpay.app/*"
   ],

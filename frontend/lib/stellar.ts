@@ -555,8 +555,11 @@ export async function getGlobalImpactStats() {
     ]);
 
     // totalRaised is in stroops (i128), totalCO2 is in grams (i128)
+    const totalRaisedXlm = Number(totalRaised) / 10_000_000;
     return {
-      totalRaisedXLM: (Number(totalRaised) / 10_000_000).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+      totalRaisedXLM: Number.isFinite(totalRaisedXlm)
+        ? totalRaisedXlm.toFixed(7)
+        : "0.0000000",
       totalCO2OffsetGrams: totalCO2.toString(),
       donationCount: Number(donationCount),
     };
@@ -620,6 +623,9 @@ export function hashMessage(message: string): number {
  * @param walletAddress - Account to stream payments for.
  * @param onPayment - Callback invoked for each matching payment event.
  * @param cursor - Optional cursor value; defaults to "now".
+ * @param onStreamError - Optional handler for transport-level failures.
+ *   Horizon's EventSource goes quiet without telling the caller, so
+ *   consumers that need to reconnect (#1071) must be notified here.
  * @returns Cleanup function to stop streaming.
  * @throws Never; stream errors are surfaced via the Horizon SDK `onerror` callback.
  */
@@ -634,6 +640,7 @@ export function streamProjectPayments(
     transactionHash: string;
   }) => void,
   cursor?: string,
+  onStreamError?: (error: unknown) => void,
 ): () => void {
   const builder = server
     .payments()
@@ -655,6 +662,7 @@ export function streamProjectPayments(
     },
     onerror: (err: any) => {
       console.error("Horizon SSE stream error:", err);
+      onStreamError?.(err);
     },
   });
 

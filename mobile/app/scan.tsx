@@ -17,28 +17,33 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useBiometricAuth } from '../hooks/useBiometricAuth';
+import { StrKey } from '@stellar/stellar-sdk';
 
-const STELLAR_KEY_RE = /^G[A-Z2-7]{55}$/;
 const DEEP_LINK_RE   = /greenpay:\/\/donate\?(.+)/;
 
-function parseScan(data: string): { wallet: string; projectId?: string } | null {
+export const INVALID_QR_MESSAGE = 'This QR code is not a valid Stellar address';
+
+export function parseScan(data: string): { wallet: string; projectId?: string } | null {
   const deepMatch = data.match(DEEP_LINK_RE);
   if (deepMatch) {
     const params = new URLSearchParams(deepMatch[1]);
-    const wallet = params.get('wallet') ?? '';
-    if (STELLAR_KEY_RE.test(wallet)) {
+    const wallet = (params.get('wallet') ?? '').trim();
+    if (wallet && StrKey.isValidEd25519PublicKey(wallet)) {
       return { wallet, projectId: params.get('project') ?? undefined };
     }
     return null;
   }
-  if (STELLAR_KEY_RE.test(data.trim())) {
-    return { wallet: data.trim() };
+  const candidate = data.trim();
+  if (candidate && StrKey.isValidEd25519PublicKey(candidate)) {
+    return { wallet: candidate };
   }
   return null;
 }
 
 export default function ScanScreen() {
   const router = useRouter();
+  const bio = useBiometricAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,17 +55,31 @@ export default function ScanScreen() {
     }
   }, []);
 
-  const handleBarcode = ({ data }: { data: string }) => {
+  const dismissError = () => {
+    setError(null);
+    cooldown.current = false;
+  };
+
+  const handleBarcode = async ({ data }: { data: string }) => {
     if (cooldown.current || scanned) return;
     cooldown.current = true;
 
     const parsed = parseScan(data);
     if (!parsed) {
-      setError('QR code is not a valid GreenPay wallet address. Try again.');
+      setError(INVALID_QR_MESSAGE);
+      return;
+    }
+
+    // Issue #1050: require an explicit identity check before handing the
+    // scanned wallet to the donate screen, and surface the hook's failure
+    // reason instead of navigating silently when the prompt is cancelled.
+    const auth = await bio.authenticate('Confirm your identity to continue to donate');
+    if (!auth.success) {
+      setError(auth.error || 'Authentication failed. Scan again to retry.');
       setTimeout(() => {
         setError(null);
         cooldown.current = false;
-      }, 2000);
+      }, 3000);
       return;
     }
 
@@ -126,7 +145,13 @@ export default function ScanScreen() {
         </View>
         <View style={styles.bottomOverlay}>
           {error ? (
-            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity
+              accessibilityRole="alert"
+              accessibilityLabel="Invalid QR code error. Tap to dismiss and resume scanning."
+              onPress={dismissError}
+            >
+              <Text style={styles.errorText}>{error}</Text>
+            </TouchableOpacity>
           ) : scanned ? (
             <Text style={styles.successText}>QR scanned — opening donation screen…</Text>
           ) : (

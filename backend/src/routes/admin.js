@@ -2,13 +2,18 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../db/pool");
-const { signToken, adminRequired } = require("../middleware/auth");
+const { signToken, signAdminToken, adminRequired } = require("../middleware/auth");
 const { createRateLimiter } = require("../middleware/rateLimiter");
-const { buildDigestHtml, buildDigestText } = require("../services/digestQueue");
+const { buildDigestHtml } = require("../services/digestQueue");
+const {
+  getMaxRecurringAmount,
+  setMaxRecurringAmount,
+} = require("./recurringDonations");
 
 const loginLimiter = createRateLimiter(10, 15, "admin-login");
 
 const TOKEN_EXPIRY = "1h";
+const ADMIN_TOKEN_EXPIRY = "15m";
 const REFRESH_EXPIRY = "24h";
 
 /**
@@ -34,8 +39,9 @@ router.post("/login", loginLimiter, (req, res) => {
   }
 
   const token = signToken({ role: "admin", sub: username }, TOKEN_EXPIRY);
+  const adminToken = signAdminToken({ role: "admin", sub: username, type: "admin" });
   const refreshToken = signToken({ role: "admin", sub: username, type: "refresh" }, REFRESH_EXPIRY);
-  return res.json({ success: true, data: { token, refreshToken, expiresIn: 3600 } });
+  return res.json({ success: true, data: { token, adminToken, refreshToken, expiresIn: 3600, adminTokenExpiresIn: 900 } });
 });
 
 /**
@@ -245,6 +251,34 @@ router.post("/digest/preview", adminRequired, async (req, res, next) => {
   } catch (e) {
     return next(e);
   }
+});
+
+/**
+ * Get the current maximum XLM amount per recurring donation schedule.
+ *
+ * @route GET /api/admin/recurring-max-amount
+ */
+router.get("/recurring-max-amount", adminRequired, (req, res) => {
+  return res.json({
+    success: true,
+    data: { maxAmountXlm: getMaxRecurringAmount() },
+  });
+});
+
+/**
+ * Update the maximum XLM amount per recurring donation schedule.
+ *
+ * @route PUT /api/admin/recurring-max-amount
+ * @body {number|string} maxAmountXlm Positive finite number.
+ */
+router.put("/recurring-max-amount", adminRequired, (req, res) => {
+  const { maxAmountXlm } = req.body || {};
+  const parsed = typeof maxAmountXlm === "string" ? parseFloat(String(maxAmountXlm)) : Number(maxAmountXlm);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return res.status(400).json({ success: false, error: "maxAmountXlm must be a positive number" });
+  }
+  const updated = setMaxRecurringAmount(parsed);
+  return res.json({ success: true, data: { maxAmountXlm: updated } });
 });
 
 module.exports = router;

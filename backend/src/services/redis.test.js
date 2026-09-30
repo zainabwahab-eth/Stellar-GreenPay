@@ -69,7 +69,6 @@ describe("Redis singleton service", () => {
   });
 
   test("client is not reassignable (const)", () => {
-    const descriptor = Object.getOwnPropertyDescriptor(redis, "client");
     // Module exports are writable by default in CJS, but the source uses const
     // so the internal variable cannot be reassigned. We verify the exported
     // reference is stable across requires.
